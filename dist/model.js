@@ -1,0 +1,50 @@
+import {createPigMesh} from './pig.js';
+import {triangleMesh,pushTriangle,box,tube,polylineTube,lineMesh,add,sub,mul,unit,cross,routePoint,clamp} from './geometry.js';
+export const COLORS={orange:[1,.36,.12],orangeLight:[1,.62,.28],white:[.85,.92,.94],steel:[.54,.65,.71],dark:[.15,.22,.27],grain:[.82,.58,.28],cyan:[.24,.74,.85],floor:[.20,.28,.33]};
+export const STATIONS=Array.from({length:12},(_,i)=>({id:i,name:`${i<6?'A':'B'}${String(i%6+1).padStart(2,'0')}`,x:-3.35+(i%6)*1.35,z:i<6?-1.05:1.05,order:i<6?i:17-i}));
+export const ROUTE=[[-4.25,3.58,-1.05],[4.45,3.58,-1.05],[4.45,3.58,1.05],[-4.25,3.58,1.05],[-4.25,3.58,-1.05]];
+export function cycleAt(t,station=0,portion=4){t=clamp(t,0,1);const order=STATIONS[station].order,filled=clamp((t-(.025+order*.026))/.135,0,1),released=clamp((t-.62)/.28,0,1);return{fraction:filled*(1-released),litres:portion*filled*(1-released),outlet:t>=.62&&t<.94,conveying:t>0&&t<.48,phase:t<.48?0:t<.62?1:t<.94?2:3,delivered:released*portion};}
+function quad(m,a,b,c,d,color){const n=unit(cross(sub(b,a),sub(c,a)));pushTriangle(m,a,b,c,n,color);pushTriangle(m,a,c,d,n,color);}
+export function cylinder(m,a,b,r1,r2,color,n=20,cap=true){const axis=unit(sub(b,a)),u=unit(cross(axis,Math.abs(axis[1])<.9?[0,1,0]:[1,0,0])),v=cross(axis,u);const p=(base,r,t)=>add(base,add(mul(u,Math.cos(t)*r),mul(v,Math.sin(t)*r)));for(let i=0;i<n;i++){const s=i/n*Math.PI*2,t=(i+1)/n*Math.PI*2;quad(m,p(a,r1,s),p(b,r2,s),p(b,r2,t),p(a,r1,t),color);if(cap){pushTriangle(m,a,p(a,r1,t),p(a,r1,s),mul(axis,-1),color);pushTriangle(m,b,p(b,r2,s),p(b,r2,t),axis,color);}}}
+function sphere(m,c,r,color,segments=16){for(let j=0;j<8;j++)for(let i=0;i<segments;i++){const p=(a,b)=>[c[0]+r*Math.sin(a)*Math.cos(b),c[1]+r*Math.cos(a),c[2]+r*Math.sin(a)*Math.sin(b)];quad(m,p(j/8*Math.PI,i/segments*2*Math.PI),p((j+1)/8*Math.PI,i/segments*2*Math.PI),p((j+1)/8*Math.PI,(i+1)/segments*2*Math.PI),p(j/8*Math.PI,(i+1)/segments*2*Math.PI),color);}}
+function vessel(m,x,z,rings,color,closed=true){const n=24,point=(ring,i)=>{const t=i/n*Math.PI*2,c=Math.cos(t),s=Math.sin(t);return[x+ring[1]*Math.sign(c)*Math.pow(Math.abs(c),.66),ring[0],z+ring[2]*Math.sign(s)*Math.pow(Math.abs(s),.66)];};for(let j=1;j<rings.length;j++)for(let i=0;i<n;i++)quad(m,point(rings[j-1],i),point(rings[j],i),point(rings[j],i+1),point(rings[j-1],i+1),color);if(closed)for(const r of[rings[0],rings.at(-1)])for(let i=0;i<n;i++)pushTriangle(m,[x,r[0],z],point(r,i),point(r,i+1),[0,r===rings[0]?-1:1,0],color);}
+function rail(m,a,b,r=.025){cylinder(m,a,b,r,r,COLORS.steel,10);}
+export function buildModel(){const objects=[];function make(key,kind,fn,extra={}){const m=triangleMesh();fn(m);Object.assign(m,{key,kind,alpha:1,offset:[0,0,0],scale:[1,1,1],...extra});objects.push(m);return m;}
+ make('system','environment',m=>{box(m,[.05,-.16,0],[10.0,.23,8.4],COLORS.floor);box(m,[-6.2,-.13,-.1],[2.35,.18,3.0],COLORS.floor);box(m,[.0,-.012,0],[9.7,.05,1.6],[.30,.38,.41]);});
+ const grid=[];for(let x=-4.9;x<=5.0;x+=.5)grid.push([[x,-.033,-4.12],[x,-.033,4.12]]);for(let z=-4;z<=4;z+=.5)grid.push([[-4.9,-.033,z],[5,-.033,z]]);objects.push({...lineMesh(grid,[.28,.36,.39]),key:'system',kind:'environment',alpha:.40,offset:[0,0,0],scale:[1,1,1]});
+ // A cutaway installation: roof and walls are omitted to keep the equipment visible.
+ for(const s of STATIONS){const zsign=Math.sign(s.z),far=zsign*3.85;make('system','environment',m=>{for(const x of[s.x-.58,s.x+.58]){rail(m,[x,.07,s.z+zsign*.25],[x,1.05,s.z+zsign*.25],.035);rail(m,[x,.07,far],[x,1.05,far],.035);for(const y of[.46,.8,1.05])rail(m,[x,y,s.z+zsign*.25],[x,y,far]);for(let z=1.55;z<3.8;z+=.5)rail(m,[x,.1,z*zsign],[x,.80,z*zsign],.022);}for(const y of[.45,.78,1.05])rail(m,[s.x-.58,y,far],[s.x+.58,y,far]);for(let dz=1.52;dz<3.85;dz+=.17)box(m,[s.x,.015,dz*zsign],[1.10,.09,.095],[.35,.43,.46]);},{station:s.id});
+ make('dispenser','trough',m=>{const z=s.z+zsign*.3;box(m,[s.x,.19,z],[1.03,.11,.54],[.36,.47,.53]);for(const dx of[-.5,.5])box(m,[s.x+dx,.31,z],[.035,.25,.56],COLORS.steel);for(const dz of[-.27,.27])box(m,[s.x,.31,z+dz],[1.02,.25,.035],COLORS.steel);},{station:s.id});
+ make('dispenser','trough-feed',m=>box(m,[0,0,0],[.91,.035,.43],COLORS.grain),{station:s.id,offset:[s.x,.257,s.z+zsign*.3]});
+ make('dispenser','downpipe',m=>{const top=[s.x,2.23,s.z],elbow=[s.x,.68,s.z],bottom=[s.x,.44,s.z+zsign*.3];polylineTube(m,[top,elbow,bottom],.073,COLORS.white);for(const y of[.82,1.78,2.2])cylinder(m,[s.x,y-.03,s.z],[s.x,y+.03,s.z],.091,.091,COLORS.steel,16);},{station:s.id});
+ make('dispenser','shell',m=>{vessel(m,s.x,s.z,[[2.5,.294,.223],[2.64,.32,.235],[3.24,.32,.235],[3.33,.25,.18]],COLORS.white,false);cylinder(m,[s.x,3.3,s.z],[s.x,3.57,s.z],.09,.09,COLORS.white,20);},{station:s.id,alpha:.38});
+ make('dispenser','bowl',m=>vessel(m,s.x,s.z,[[2.23,.07,.065],[2.48,.285,.215],[2.5,.294,.223]],COLORS.white,false),{station:s.id,alpha:.38});
+ make('dispenser','trim',m=>{vessel(m,s.x,s.z,[[3.27,.30,.222],[3.30,.28,.205]],COLORS.white);vessel(m,s.x,s.z,[[2.47,.289,.218],[2.50,.294,.223]],COLORS.white);box(m,[s.x+.18,2.89,s.z+.244],[.065,.55,.028],COLORS.orange);for(let i=0;i<7;i++)box(m,[s.x+.23,2.64+i*.068,s.z+.25],[i%2?.026:.045,.008,.012],COLORS.dark);cylinder(m,[s.x-.21,3.55,s.z],[s.x-.21,3.61,s.z],.107,.107,COLORS.orange,16);cylinder(m,[s.x+.21,3.55,s.z],[s.x+.21,3.61,s.z],.107,.107,COLORS.orange,16);},{station:s.id});
+ make('dispenser','lid',m=>{cylinder(m,[s.x,3.10,s.z+.225],[s.x,3.10,s.z+.275],.137,.137,COLORS.orange,28);cylinder(m,[s.x,3.10,s.z+.276],[s.x,3.10,s.z+.29],.100,.100,[.91,.28,.09],28);},{station:s.id});
+ make('dispenser','adjuster',m=>box(m,[0,0,0],[.105,.035,.047],COLORS.white),{station:s.id,offset:[s.x+.18,2.94,s.z+.274]});
+ make('dispenser','feed',m=>vessel(m,0,0,[[0,.045,.045],[.2,.255,.184],[1,.272,.194]],COLORS.grain),{station:s.id,offset:[s.x,2.27,s.z]});
+ make('release','ball',m=>sphere(m,[0,0,0],.105,COLORS.orange),{station:s.id,offset:[s.x,2.29,s.z]});
+ make('release','cord',m=>cylinder(m,[0,0,0],[0,1.45,0],.009,.009,COLORS.dark,8),{station:s.id,offset:[s.x,2.35,s.z]});
+ }
+ // Main continuous chain-disc conveyor, with a corner housing at every turn.
+ make('conveyor','pipe',m=>polylineTube(m,ROUTE,.077,COLORS.steel));
+ make('conveyor','frame',m=>{for(const p of ROUTE.slice(0,4)){cylinder(m,add(p,[0,-.065,0]),add(p,[0,.065,0]),.19,.19,COLORS.orange,24);cylinder(m,add(p,[0,.065,0]),add(p,[0,.073,0]),.145,.145,[.34,.41,.43],24);}for(const x of[-4.35,4.57])for(const z of[-1.05,1.05]){rail(m,[x,.07,z],[x,3.6,z],.035);box(m,[x,.02,z],[.24,.065,.24],COLORS.steel);}});
+ make('release','release-line',m=>{for(const z of[-1.05,1.05]){cylinder(m,[-4.25,3.8,z],[4.45,3.8,z],.012,.012,COLORS.dark,8);for(const x of[-3.35,3.4])rail(m,[x,3.58,z],[x,3.8,z],.016);}});
+ make('release','actuator',m=>{box(m,[-4.25,3.81,0],[.31,.29,.44],COLORS.orange);rail(m,[-4.25,3.8,-1.05],[-4.25,3.8,1.05],.017);box(m,[-4.25,3.66,0],[.38,.025,.6],COLORS.steel);});
+ make('conveyor','drive',m=>{box(m,[-4.25,3.59,.6],[.53,.46,.47],COLORS.white);cylinder(m,[-4.25,3.75,.6],[-4.25,4.1,.6],.17,.17,COLORS.dark,24);for(let y=3.8;y<4.08;y+=.045)cylinder(m,[-4.25,y,.6],[-4.25,y+.015,.6],.19,.19,COLORS.steel,20);});
+ make('sensor','sensor',m=>{const s=STATIONS[6];box(m,[s.x-.26,2.97,s.z],[.12,.18,.11],COLORS.dark);box(m,[s.x-.326,3.0,s.z],[.012,.034,.038],COLORS.cyan);polylineTube(m,[[s.x-.27,3.04,s.z],[s.x-.44,3.25,s.z],[s.x-.44,3.60,s.z],[-4.25,3.60,s.z]],.009,COLORS.dark);},{station:6});
+ make('sensor','controller',m=>{box(m,[-4.65,1.75,1.62],[.42,.65,.2],COLORS.white);box(m,[-4.65,1.89,1.73],[.28,.19,.018],[.045,.13,.17]);box(m,[-4.65,1.89,1.742],[.19,.035,.01],COLORS.cyan);for(let i=0;i<3;i++)cylinder(m,[-4.75+i*.10,1.59,1.73],[-4.75+i*.10,1.59,1.75],.025,.025,i===2?COLORS.orange:COLORS.dark,12);rail(m,[-4.65,.1,1.6],[-4.65,1.6,1.6],.03);});
+ // Supply silo and a schematic powered incline auger into the chain pickup hopper.
+ make('silo','silo',m=>{cylinder(m,[-6.25,2.65,-.25],[-6.25,4.55,-.25],.85,.85,COLORS.steel,48);cylinder(m,[-6.25,4.55,-.25],[-6.25,5.08,-.25],.85,.22,COLORS.steel,48);cylinder(m,[-6.25,1.4,-.25],[-6.25,2.65,-.25],.13,.85,COLORS.steel,48);cylinder(m,[-6.25,5.08,-.25],[-6.25,5.14,-.25],.22,.22,COLORS.orange,28);for(let y=2.75;y<4.5;y+=.25)cylinder(m,[-6.25,y,-.25],[-6.25,y+.035,-.25],.867,.867,[.63,.73,.77],48);for(const a of[.7,2.3,3.85,5.45]){const x=-6.25+Math.cos(a)*.65,z=-.25+Math.sin(a)*.65;box(m,[x,1.22,z],[.11,2.44,.11],COLORS.steel);box(m,[x,.07,z],[.26,.1,.26],COLORS.dark);}for(const x of[-6.48,-6.04])rail(m,[x,.2,.67],[x,4.7,.67],.025);for(let y=.35;y<4.6;y+=.3)rail(m,[-6.48,y,.67],[-6.04,y,.67],.017);});
+ make('silo','supply',m=>{polylineTube(m,[[-6.25,1.4,-.25],[-4.25,4.04,-1.05]],.10,COLORS.steel);vessel(m,-4.25,-1.05,[[3.58,.10,.10],[3.86,.26,.23],[4.02,.26,.23]],COLORS.white);box(m,[-6.18,1.5,-.25],[.36,.35,.35],COLORS.orange);});
+ // A short tube segment stays visible in the dispenser close-up.
+ make('conveyor','detail-pipe',m=>tube(m,[-.8,3.58,0],[.8,3.58,0],.077,COLORS.steel),{detail:true});
+ make('release','detail-rope',m=>cylinder(m,[-.8,3.8,0],[.8,3.8,0],.012,.012,COLORS.dark,8),{detail:true});
+ make('conveyor','detail-chain',m=>cylinder(m,[-.8,3.58,0],[.8,3.58,0],.012,.012,COLORS.dark,8),{detail:true});
+ for(let i=0;i<6;i++)make('conveyor','detail-disc',m=>cylinder(m,[-.012,0,0],[.012,0,0],.053,.053,COLORS.orangeLight,14),{detail:true,disc:i});
+ const chainPoints=[];for(let i=0;i<=240;i++)chainPoints.push(routePoint(ROUTE,i/240));objects.push({...lineMesh(chainPoints.slice(1).map((p,i)=>[chainPoints[i],p]),[.35,.43,.47]),key:'conveyor',kind:'chain',alpha:1,offset:[0,0,0],scale:[1,1,1]});
+ for(let i=0;i<78;i++)make('conveyor','disc',m=>cylinder(m,[-.014,0,0],[.014,0,0],.053,.053,COLORS.orangeLight,12),{disc:i});
+ const pig=createPigMesh();
+ for(const st of STATIONS)objects.push({vertices:pig.vertices,indices:pig.indices,mode:"triangles",key:"dispenser",kind:"pig",station:st.id,alpha:1,offset:[st.x,.06,Math.sign(st.z)*2.5],scale:[1,1,1],turn:st.z<0?Math.PI:0});
+ return objects;
+}
